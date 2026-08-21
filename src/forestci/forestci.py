@@ -5,8 +5,10 @@ Calculate confidence intervals for scikit-learn RandomForestRegressor and
 RandomForestClassifier predictions.
 """
 
-import numpy as np
 import copy
+import warnings
+
+import numpy as np
 
 import sklearn
 from sklearn.ensemble._forest import BaseForest
@@ -128,7 +130,7 @@ def _core_computation(
     memory_constrained=False,
     memory_limit=None,
     test_mode=False,
-    verbose=False,
+    show_progress=False,
 ):
     """
     Helper function, that performs the core computation
@@ -162,7 +164,9 @@ def _core_computation(
         An upper bound for how much memory the itermediate matrices will take
         up in Megabytes. This must be provided if memory_constrained=True.
 
-
+    show_progress: boolean, optional
+        Whether to display progress while processing memory-constrained chunks.
+        Requires the optional ``tqdm`` dependency. Default: False.
     """
     if not memory_constrained:
         return np.sum((np.dot(inbag - 1, pred_centered.T) / n_trees) ** 2, 0)
@@ -189,15 +193,17 @@ def _core_computation(
     if test_mode:
         print("Number of chunks: %d" % (len(chunks),))
 
-    if verbose:
+    if show_progress:
         try:
             from tqdm.auto import tqdm
-            chunks_iter = tqdm(chunks, desc="Computing V_IJ")
+
+            description = f"Computing V_IJ ({n_trees} trees)"
+            chunks_iter = tqdm(chunks, desc=description)
         except ImportError:
-            import warnings
             warnings.warn(
                 "tqdm must be installed to use the progress indicator. "
-                "Please install tqdm (`pip install tqdm`) or set verbose=False."
+                "Install forestci[progress] or set show_progress=False.",
+                stacklevel=2,
             )
             chunks_iter = chunks
     else:
@@ -295,7 +301,7 @@ def random_forest_error(
     memory_constrained=False,
     memory_limit=None,
     y_output=None,
-    verbose=False
+    show_progress=False,
 ):
     """
     Calculate error bars from scikit-learn RandomForest estimators.
@@ -343,6 +349,12 @@ def random_forest_error(
         analyse. The program will return the IJ variance related to that target
         only.
 
+    show_progress: boolean, optional
+        Whether to display progress while processing memory-constrained chunks.
+        This has no effect unless ``memory_constrained=True`` and requires the
+        optional ``tqdm`` dependency. Calibration displays a second bar for its
+        reduced forest computation. Default: False.
+
     Returns
     -------
     An array with the unbiased sampling variance (V_IJ_unbiased)
@@ -373,7 +385,14 @@ def random_forest_error(
     pred_centered = _centered_prediction_forest(forest, X_test, y_output)
     n_trees = forest.n_estimators
     V_IJ = _core_computation(
-        X_train_shape, X_test, inbag, pred_centered, n_trees, memory_constrained, memory_limit, verbose=verbose
+        X_train_shape,
+        X_test,
+        inbag,
+        pred_centered,
+        n_trees,
+        memory_constrained,
+        memory_limit,
+        show_progress=show_progress,
     )
     V_IJ_unbiased = _bias_correction(V_IJ, inbag, pred_centered, n_trees)
 
@@ -411,7 +430,7 @@ def random_forest_error(
             memory_constrained=memory_constrained,
             memory_limit=memory_limit,
             y_output=y_output,
-            verbose=verbose
+            show_progress=show_progress,
         )
         # Use this second set of variance estimates
         # to estimate scale of Monte Carlo noise
