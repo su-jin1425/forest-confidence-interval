@@ -128,6 +128,7 @@ def _core_computation(
     memory_constrained=False,
     memory_limit=None,
     test_mode=False,
+    verbose=False,
 ):
     """
     Helper function, that performs the core computation
@@ -187,10 +188,25 @@ def _core_computation(
     ]
     if test_mode:
         print("Number of chunks: %d" % (len(chunks),))
+
+    if verbose:
+        try:
+            from tqdm.auto import tqdm
+            chunks_iter = tqdm(chunks, desc="Computing V_IJ")
+        except ImportError:
+            import warnings
+            warnings.warn(
+                "tqdm must be installed to use the progress indicator. "
+                "Please install tqdm (`pip install tqdm`) or set verbose=False."
+            )
+            chunks_iter = chunks
+    else:
+        chunks_iter = chunks
+
     V_IJ = np.concatenate(
         [
             np.sum((np.dot(inbag - 1, pred_centered[chunk].T) / n_trees) ** 2, 0)
-            for chunk in chunks
+            for chunk in chunks_iter
         ]
     )
     return V_IJ
@@ -278,7 +294,8 @@ def random_forest_error(
     calibrate=True,
     memory_constrained=False,
     memory_limit=None,
-    y_output=None
+    y_output=None,
+    verbose=False
 ):
     """
     Calculate error bars from scikit-learn RandomForest estimators.
@@ -356,7 +373,7 @@ def random_forest_error(
     pred_centered = _centered_prediction_forest(forest, X_test, y_output)
     n_trees = forest.n_estimators
     V_IJ = _core_computation(
-        X_train_shape, X_test, inbag, pred_centered, n_trees, memory_constrained, memory_limit
+        X_train_shape, X_test, inbag, pred_centered, n_trees, memory_constrained, memory_limit, verbose=verbose
     )
     V_IJ_unbiased = _bias_correction(V_IJ, inbag, pred_centered, n_trees)
 
@@ -393,7 +410,8 @@ def random_forest_error(
             calibrate=False,
             memory_constrained=memory_constrained,
             memory_limit=memory_limit,
-            y_output=y_output
+            y_output=y_output,
+            verbose=verbose
         )
         # Use this second set of variance estimates
         # to estimate scale of Monte Carlo noise

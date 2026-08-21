@@ -1,4 +1,5 @@
 from inspect import signature
+from unittest.mock import patch
 
 import forestci as fci
 import numpy as np
@@ -236,3 +237,27 @@ def test_centered_prediction_forest():
                 pred_centered_sample[0],
                 pred_centered[n_sample],
             )
+
+def test_verbose_progress():
+    X = np.array([[5, 2], [5, 5], [3, 3], [6, 4], [6, 6]])
+    y = np.array([70, 100, 60, 100, 120])
+    
+    n_trees = 4
+    forest = RandomForestRegressor(n_estimators=n_trees, random_state=42)
+    forest.fit(X, y)
+    
+    err_verbose = fci.random_forest_error(
+        forest, X.shape, X, memory_constrained=True, memory_limit=50, verbose=True
+    )
+    
+    err_no_verbose = fci.random_forest_error(
+        forest, X.shape, X, memory_constrained=True, memory_limit=50, verbose=False
+    )
+    
+    npt.assert_almost_equal(err_verbose, err_no_verbose)
+
+    with patch("tqdm.auto.tqdm", side_effect=lambda x, **kwargs: x) as mock_tqdm:
+        fci.random_forest_error(
+            forest, X.shape, X, memory_constrained=True, memory_limit=50, verbose=True
+        )
+        mock_tqdm.assert_called_once()
