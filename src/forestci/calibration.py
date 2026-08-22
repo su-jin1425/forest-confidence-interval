@@ -56,7 +56,7 @@ def gfit(X, sigma, p=2, nbin=1000, unif_fraction=0.1):
     -------
     An array of the posterior density estimate g.
     """
-    min_x = max(min(X) - 2 * np.std(X, ddof=1), 0)
+    min_x = min(np.min(X) - 2 * np.std(X, ddof=1), 0)
     max_x = max(max(X) + 2 * np.std(X, ddof=1),
                 np.std(X, ddof=1))
     xvals = np.linspace(min_x, max_x, nbin)
@@ -64,7 +64,7 @@ def gfit(X, sigma, p=2, nbin=1000, unif_fraction=0.1):
     noise_kernel = norm(scale=sigma,loc=xvals.mean()).pdf(xvals)
     noise_kernel /= noise_kernel.sum()
 
-    mask = xvals > 0
+    mask = xvals >= 0
     assert sum(mask) > 0
     g_eta_slab = mask / sum(mask)
 
