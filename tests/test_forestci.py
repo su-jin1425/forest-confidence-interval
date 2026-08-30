@@ -1,8 +1,11 @@
 from inspect import signature
+import sys
+from unittest.mock import patch
 
 import forestci as fci
 import numpy as np
 import numpy.testing as npt
+import pytest
 from sklearn.ensemble import BaggingRegressor
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.svm import SVR
@@ -236,3 +239,100 @@ def test_centered_prediction_forest():
                 pred_centered_sample[0],
                 pred_centered[n_sample],
             )
+
+
+def test_show_progress():
+    X = np.array([[5, 2], [5, 5], [3, 3], [6, 4], [6, 6]])
+    y = np.array([70, 100, 60, 100, 120])
+
+    n_trees = 4
+    forest = RandomForestRegressor(n_estimators=n_trees, random_state=42)
+    forest.fit(X, y)
+
+    with patch(
+        "tqdm.auto.tqdm", side_effect=lambda x, **kwargs: x
+    ) as mock_tqdm:
+        err_progress = fci.random_forest_error(
+            forest,
+            X.shape,
+            X,
+            calibrate=False,
+            memory_constrained=True,
+            memory_limit=0.00008,
+            show_progress=True,
+        )
+        mock_tqdm.assert_called_once()
+        assert len(mock_tqdm.call_args.args[0]) > 1
+        assert mock_tqdm.call_args.kwargs["desc"] == "Computing V_IJ (4 trees)"
+
+    err_no_progress = fci.random_forest_error(
+        forest,
+        X.shape,
+        X,
+        calibrate=False,
+        memory_constrained=True,
+        memory_limit=0.00008,
+        show_progress=False,
+    )
+
+    npt.assert_almost_equal(err_progress, err_no_progress)
+
+
+def test_show_progress_without_tqdm():
+    X = np.array([[5, 2], [5, 5], [3, 3], [6, 4], [6, 6]])
+    y = np.array([70, 100, 60, 100, 120])
+    forest = RandomForestRegressor(n_estimators=4, random_state=42).fit(X, y)
+
+    with patch.dict(sys.modules, {"tqdm.auto": None}):
+        with pytest.warns(UserWarning, match="tqdm must be installed"):
+            err_without_tqdm = fci.random_forest_error(
+                forest,
+                X.shape,
+                X,
+                calibrate=False,
+                memory_constrained=True,
+                memory_limit=0.00008,
+                show_progress=True,
+            )
+
+    err_no_progress = fci.random_forest_error(
+        forest,
+        X.shape,
+        X,
+        calibrate=False,
+        memory_constrained=True,
+        memory_limit=0.00008,
+    )
+    npt.assert_almost_equal(err_without_tqdm, err_no_progress)
+
+
+def test_calibration_progress_labels_tree_counts():
+    random_state = np.random.RandomState(42)
+    X = random_state.normal(size=(30, 2))
+    y = random_state.normal(size=30)
+    forest = RandomForestRegressor(n_estimators=20, random_state=42).fit(X, y)
+
+    with (
+        patch(
+            "tqdm.auto.tqdm", side_effect=lambda x, **kwargs: x
+        ) as mock_tqdm,
+        patch(
+            "forestci.forestci.calibrateEB",
+            side_effect=lambda variances, _: variances,
+        ),
+    ):
+        fci.random_forest_error(
+            forest,
+            X.shape,
+            X,
+            memory_constrained=True,
+            memory_limit=0.001,
+            show_progress=True,
+        )
+
+    assert mock_tqdm.call_count == 2
+    descriptions = [call.kwargs["desc"] for call in mock_tqdm.call_args_list]
+    assert descriptions == [
+        "Computing V_IJ (20 trees)",
+        "Computing V_IJ (10 trees)",
+    ]
