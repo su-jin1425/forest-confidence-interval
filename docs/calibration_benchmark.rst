@@ -51,7 +51,7 @@ We established an empirical reference (NOT absolute ground truth) using a Random
 
     1. **Neg Rate**: Percentage of raw IJ variance estimates that fell below zero.
     2. **Var RMSE**: Root Mean Squared Error of the variance estimates compared to the 2000-tree empirical reference variance.
-    3. **CI RMSE**: Root Mean Squared Error of the CI width compared directly against the CI widths from the 2000-tree empirical reference.
+    3. **Rel Improvement**: The relative improvement in Var RMSE of the calibrated approach over the uncalibrated approach, calculated as ``(Var RMSE (Uncal) - Var RMSE (Cal)) / Var RMSE (Uncal) * 100%``.
 
 **Datasets**:
 The benchmark covers both regression and classification across six datasets, including the repository's `auto_mpg.csv` example dataset.
@@ -64,145 +64,126 @@ The benchmark covers both regression and classification across six datasets, inc
 
 Benchmark Results
 -----------------
-*Note: In all scenarios below, the calibrated variance estimates strictly eliminated negative values, resulting in a calibrated negative rate of exactly 0.0%.*
+*Note: In all scenarios below, the calibrated variance estimates strictly eliminated negative values, resulting in a calibrated negative rate of exactly 0.0%. The python script used to generate this benchmark can be found in the repository under* ``scripts/generate_calibration_benchmark.py``.
 
 .. list-table:: 
    :header-rows: 1
-   :widths: 20 15 15 15 15 15 15
+   :widths: 20 15 15 15 15 20
 
    * - Dataset
      - Trees
      - Neg Rate (Uncal)
      - Var RMSE (Uncal)
      - Var RMSE (Cal)
-     - CI RMSE (Uncal)
-     - CI RMSE (Cal)
+     - Rel Improvement
    * - Auto MPG
      - 50
      - 20.3%
      - 10.28
      - 9.24
-     - 5.16
-     - 3.99
+     - +10.1%
    * - 
      - 100
      - 21.5%
      - 3.76
      - 3.68
-     - 2.61
-     - 2.22
+     - +2.1%
    * - 
      - 200
      - 12.7%
      - 1.08
      - 1.52
-     - 1.87
-     - 1.91
+     - -40.7%
    * - California
      - 50
      - 90.5%
      - 0.138
      - 0.200
-     - 0.807
-     - 1.353
+     - -44.9%
    * - 
      - 100
      - 27.0%
      - 0.321
      - 0.161
-     - 1.271
-     - 0.782
+     - +49.8%
    * - 
      - 200
      - 30.5%
      - 0.170
      - 0.101
-     - 0.829
-     - 0.499
+     - +40.6%
    * - Diabetes
      - 50
      - 19.1%
      - 1733.4
      - 998.1
-     - 102.0
-     - 84.3
+     - +42.4%
    * - 
      - 100
      - 41.6%
      - 565.2
      - 178.3
-     - 53.8
-     - 19.3
+     - +68.5%
    * - 
      - 200
      - 23.6%
      - 404.0
      - 271.8
-     - 38.8
-     - 18.9
+     - +32.7%
    * - Breast Cancer
      - 50
      - 5.3%
      - 0.073
      - 0.048
-     - 0.571
-     - 0.481
+     - +34.2%
    * - 
      - 100
      - 21.9%
      - 0.022
      - 0.011
-     - 0.268
-     - 0.280
+     - +50.0%
    * - 
      - 200
      - 26.3%
      - 0.011
      - 0.006
-     - 0.186
-     - 0.169
+     - +45.5%
    * - Synth Hard
      - 50
      - 87.5%
      - 0.052
      - 0.057
-     - 0.410
-     - 0.824
+     - -9.6%
    * - 
      - 100
      - 32.8%
      - 0.094
      - 0.034
-     - 0.833
-     - 0.546
+     - +63.8%
    * - 
      - 200
      - 40.0%
      - 0.036
      - 0.010
-     - 0.497
-     - 0.279
+     - +72.2%
    * - Synthetic Reg
      - 50
      - 18.0%
      - 5180.1
      - 2285.0
-     - 181.7
-     - 131.4
+     - +55.9%
    * - 
      - 100
      - 27.5%
      - 2379.6
      - 1269.4
-     - 112.6
-     - 88.7
+     - +46.7%
    * - 
      - 200
      - 16.0%
      - 1057.9
      - 622.1
-     - 68.2
-     - 54.6
+     - +41.2%
 
 Interpretation and Limitations
 ------------------------------
