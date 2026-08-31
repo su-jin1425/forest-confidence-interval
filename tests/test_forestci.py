@@ -269,7 +269,30 @@ def test_calibrateEB_bounds():
     variances = np.array([-0.1, -0.05, 0.1, 0.2, 0.3])
     calibrated = calib.calibrateEB(variances, sigma2=0.01)
     assert np.all(calibrated >= 0)
-    
+
+
+@pytest.mark.parametrize(
+    "variances",
+    [
+        np.array([-1.0, -0.5, 0.0, 0.5, 1.0]),
+        np.linspace(-1.0, 1.0, 101),
+        np.array([-0.5, -0.4, -0.3, -0.2, -0.1]),
+    ],
+)
+def test_calibrateEB_is_finite_for_negative_and_symmetric_inputs(variances):
+    calibrated = calib.calibrateEB(variances, sigma2=0.01)
+    assert np.all(np.isfinite(calibrated))
+    assert np.all(calibrated >= 0)
+
+
+@pytest.mark.parametrize("value", [0.0, -0.1])
+def test_gfit_constant_nonpositive_input(value):
+    xvals, prior = calib.gfit(np.full(5, value), sigma=0.1)
+    assert np.all(np.isfinite(prior))
+    npt.assert_allclose(prior.sum(), 1.0)
+    assert np.all(prior[xvals < 0] == 0)
+
+
 def test_show_progress():
     X = np.array([[5, 2], [5, 5], [3, 3], [6, 4], [6, 6]])
     y = np.array([70, 100, 60, 100, 120])

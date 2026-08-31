@@ -61,51 +61,94 @@ def gfit(X, sigma, p=2, nbin=1000, unif_fraction=0.1):
                 np.std(X, ddof=1))
     xvals = np.linspace(min_x, max_x, nbin)
 
+    # ``xvals`` serves two purposes: it covers the support of the noisy
+    # observations X (which may be negative), and discretizes the latent true
+    # variance (which may not). A constant non-positive input leaves no
+    # positive latent support, so the only admissible prior is a point mass at
+    # zero.
+    mask = xvals >= 0
+    if not np.any(xvals > 0):
+        g_eta = np.zeros_like(xvals)
+        g_eta[mask] = 1.0 / np.sum(mask)
+        return xvals, g_eta
+
     noise_kernel = norm(scale=sigma,loc=xvals.mean()).pdf(xvals)
     noise_kernel /= noise_kernel.sum()
 
-    mask = xvals >= 0
     assert sum(mask) > 0
     g_eta_slab = mask / sum(mask)
 
     XX = np.column_stack([ pow(xvals, exp) for exp in range(1, p+1)])
-    XX /= np.sum(XX,axis = 0, keepdims=True) # normalize each feature column for better numerical stability
+    # Preserve the existing parameter scaling when it is well-conditioned,
+    # but fall back to a non-cancelling scale when a signed column sum is zero
+    # or nearly zero (as happens for odd powers on a symmetric grid).
+    signed_scale = np.sum(XX, axis=0, keepdims=True)
+    absolute_scale = np.sum(np.abs(XX), axis=0, keepdims=True)
+    near_zero = (
+        np.abs(signed_scale)
+        <= np.sqrt(np.finfo(float).eps) * absolute_scale
+    )
+    scale = np.where(near_zero, absolute_scale, signed_scale)
+    XX /= scale
+    XX[~mask] = 0.0
+
+    def prior_from_eta(eta):
+        """Return the non-negative prior without overflow on masked points."""
+        log_weights = np.dot(XX[mask], eta)
+        if not np.all(np.isfinite(log_weights)):
+            return None
+
+        # Subtracting the maximum is algebraically neutral after normalization
+        # and prevents overflow in exp.
+        log_weights -= np.max(log_weights)
+        weights = np.exp(log_weights)
+        weight_sum = np.sum(weights)
+        if not np.isfinite(weight_sum) or weight_sum <= 0:
+            return None
+
+        g_eta_main = np.zeros_like(xvals)
+        g_eta_main[mask] = weights / weight_sum
+        return (
+            (1 - unif_fraction) * g_eta_main
+            + unif_fraction * g_eta_slab
+        )
 
     def neg_loglik(eta):
-        with np.errstate(over='ignore'):
-            # if eta > 0 the exponential will likely get overflow. that is fine.
-            g_eta_raw = np.exp(np.dot(XX, eta)) * mask
+        g_eta = prior_from_eta(eta)
+        if g_eta is None:
+            return 1000 * (len(X) + sum(eta ** 2))
 
-        if ((np.sum(g_eta_raw) == np.inf) |
-            (np.sum(g_eta_raw) <=
-                100 * np.finfo(np.double).tiny)):
-                return (1000 * (len(X) + sum(eta ** 2)))
-
-        assert sum(g_eta_raw) > 0, "Unexpected error"
-        assert np.isfinite(sum(g_eta_raw)), "Unexpected error"
-        g_eta_main = g_eta_raw / sum(g_eta_raw)
-        g_eta = (
-        (1 - unif_fraction) * g_eta_main +
-             unif_fraction * g_eta_slab)
         f_eta = fftconvolve(g_eta, noise_kernel, mode='same')
         return np.sum(np.interp(X, xvals,
                       -np.log(np.maximum(f_eta, 0.0000001))))
 
+    initial_eta = np.full(p, -1, dtype='float')
     res = minimize(
         neg_loglik,
-        np.full(p, -1, dtype='float'),
+        initial_eta,
         tol=5e-5 # adjusted so that the MPG example in the docs passes
     )
     if not res.success:
+        # BFGS can report precision loss for otherwise regular symmetric
+        # inputs. With only ``p`` parameters, a derivative-free retry is a
+        # cheap and deterministic fallback.
+        fallback = minimize(
+            neg_loglik,
+            initial_eta,
+            method="Nelder-Mead",
+            tol=5e-5,
+            options={"maxiter": 2000, "maxfev": 4000},
+        )
+        if fallback.success or (
+            np.isfinite(fallback.fun) and fallback.fun < res.fun
+        ):
+            res = fallback
+    if not res.success:
         warnings.warn("Fitting the empirical bayes prior failed with message %s." % res.message)
     eta_hat = res.x
-    g_eta_raw = np.exp(np.dot(XX, eta_hat)) * mask
-    g_eta_main = g_eta_raw / sum(g_eta_raw)
-    g_eta = (
-        (1 - unif_fraction) * g_eta_main +
-             unif_fraction * g_eta_slab)
+    g_eta = prior_from_eta(eta_hat)
 
-    assert np.all(np.isfinite(g_eta)), "Fitting the empirical bayes prior failed."
+    assert g_eta is not None, "Fitting the empirical bayes prior failed."
     return xvals, g_eta
 
 
