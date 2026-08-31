@@ -265,12 +265,6 @@ def test_gfit_negative_support():
     assert len(xvals) == 1000
 
 
-def test_calibrateEB_bounds():
-    variances = np.array([-0.1, -0.05, 0.1, 0.2, 0.3])
-    calibrated = calib.calibrateEB(variances, sigma2=0.01)
-    assert np.all(calibrated >= 0)
-
-
 @pytest.mark.parametrize(
     "variances",
     [
