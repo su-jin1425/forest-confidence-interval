@@ -115,7 +115,7 @@ def gfit(X, sigma, p=2, nbin=1000, unif_fraction=0.1):
     res = minimize(
         neg_loglik,
         initial_eta,
-        tol=5e-5 # adjusted so that the MPG example in the docs passes
+        tol=5e-5
     )
     if not res.success:
         fallback = minimize(

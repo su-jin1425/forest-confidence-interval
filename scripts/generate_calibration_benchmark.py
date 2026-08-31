@@ -1,110 +1,116 @@
+import os
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.datasets import fetch_california_housing, load_diabetes, load_breast_cancer, make_classification, make_regression
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.model_selection import train_test_split
 import forestci as fci
-import time
+
+def get_datasets():
+    datasets = {}
+    
+    # 1. Auto MPG
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    mpg_path = os.path.join(base_dir, 'examples', 'data', 'auto_mpg.csv')
+    df = pd.read_csv(mpg_path)
+    df = df.replace('?', np.nan).dropna()
+    y_mpg = df['mpg'].values
+    X_mpg = df.drop(['mpg'], axis=1).values.astype(float)
+    datasets['Auto MPG'] = (X_mpg, y_mpg, 'regression')
+    
+    # 2. California Housing
+    california = fetch_california_housing()
+    datasets['California'] = (california.data, california.target, 'regression')
+    
+    # 3. Diabetes
+    diabetes = load_diabetes()
+    datasets['Diabetes'] = (diabetes.data, diabetes.target, 'regression')
+    
+    # 4. Breast Cancer
+    cancer = load_breast_cancer()
+    datasets['Breast Cancer'] = (cancer.data, cancer.target, 'classification')
+    
+    # 5. Synthetic Hard
+    X_sh, y_sh = make_classification(n_samples=2000, n_features=20, n_informative=10, random_state=42)
+    datasets['Synth Hard'] = (X_sh, y_sh, 'classification')
+    
+    # 6. Synthetic Reg
+    X_sr, y_sr = make_regression(n_samples=1000, n_features=10, noise=0.1, random_state=42)
+    datasets['Synthetic Reg'] = (X_sr, y_sr, 'regression')
+    
+    return datasets
+
+def rmse(y_true, y_pred):
+    return np.sqrt(np.mean((y_true - y_pred)**2))
 
 def run_benchmark():
-    datasets = {
-        "Auto MPG": {"type": "reg"},
-        "California": {"type": "reg"},
-        "Diabetes": {"type": "reg"},
-        "Breast Cancer": {"type": "clf"},
-        "Synth Hard": {"type": "clf"},
-        "Synthetic Reg": {"type": "reg"}
-    }
-    
-    # Load datasets
-    mpg_data = np.genfromtxt('examples/data/auto_mpg.csv', delimiter=',', dtype="f8")
-    datasets["Auto MPG"]["X"] = mpg_data[:, :-1]
-    datasets["Auto MPG"]["y"] = mpg_data[:, -1]
-    
-    cal_X, cal_y = fetch_california_housing(return_X_y=True)
-    datasets["California"]["X"], datasets["California"]["y"] = cal_X[:2000], cal_y[:2000]
-    
-    datasets["Diabetes"]["X"], datasets["Diabetes"]["y"] = load_diabetes(return_X_y=True)
-    datasets["Breast Cancer"]["X"], datasets["Breast Cancer"]["y"] = load_breast_cancer(return_X_y=True)
-    datasets["Synth Hard"]["X"], datasets["Synth Hard"]["y"] = make_classification(n_samples=2000, n_features=20, n_informative=10, random_state=42)
-    datasets["Synthetic Reg"]["X"], datasets["Synthetic Reg"]["y"] = make_regression(n_samples=1000, n_features=10, noise=0.1, random_state=42)
-    
+    datasets = get_datasets()
+    tree_counts = [50, 100, 200]
     results = []
-    
-    for name, data in datasets.items():
-        print(f"Processing {name}...")
-        X_train, X_test, y_train, y_test = train_test_split(data["X"], data["y"], test_size=0.2, random_state=42)
+
+    for name, (X, y, task) in datasets.items():
+        print(f"Running dataset: {name}")
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
         
-        # 2000-tree reference
-        if data["type"] == "reg":
-            ref_rf = RandomForestRegressor(n_estimators=2000, random_state=42, n_jobs=-1)
+        if task == 'regression':
+            model_class = RandomForestRegressor
         else:
-            ref_rf = RandomForestClassifier(n_estimators=2000, random_state=42, n_jobs=-1)
+            model_class = RandomForestClassifier
             
-        ref_rf.fit(X_train, y_train)
+        # Reference model (2000 trees)
+        ref_model = model_class(n_estimators=2000, random_state=42, n_jobs=-1)
+        ref_model.fit(X_train, y_train)
         
-        # We use uncalibrated reference for ground truth comparison
-        ref_var = fci.random_forest_error(ref_rf, X_train, X_test, calibrate=False)
-        ref_var = np.maximum(ref_var, 0)
+        # Calculate reference variance using inbag
+        inbag_ref = fci.calc_inbag(X_train.shape[0], ref_model)
+        ref_var = fci.random_forest_error(ref_model, X_train.shape, X_test, inbag=inbag_ref, calibrate=False)
+        ref_var = np.maximum(ref_var, 0) # reference is clipped to positive
         
-        for n_trees in [50, 100, 200]:
-            if data["type"] == "reg":
-                rf = RandomForestRegressor(n_estimators=n_trees, random_state=42, n_jobs=-1)
-            else:
-                rf = RandomForestClassifier(n_estimators=n_trees, random_state=42, n_jobs=-1)
+        for n_trees in tree_counts:
+            print(f"  Trees: {n_trees}")
+            model = model_class(n_estimators=n_trees, random_state=42, n_jobs=-1)
+            model.fit(X_train, y_train)
+            inbag = fci.calc_inbag(X_train.shape[0], model)
             
-            rf.fit(X_train, y_train)
-            
-            var_uncal = fci.random_forest_error(rf, X_train, X_test, calibrate=False)
-            var_cal = fci.random_forest_error(rf, X_train, X_test, calibrate=True)
+            var_uncal = fci.random_forest_error(model, X_train.shape, X_test, inbag=inbag, calibrate=False)
+            var_cal = fci.random_forest_error(model, X_train.shape, X_test, inbag=inbag, calibrate=True)
             
             neg_rate = np.mean(var_uncal < 0) * 100
             
-            # Clip uncalibrated for fair comparison
             var_uncal_clipped = np.maximum(var_uncal, 0)
+            rmse_uncal = rmse(ref_var, var_uncal_clipped)
+            rmse_cal = rmse(ref_var, var_cal)
             
-            var_rmse_uncal = np.sqrt(np.mean((var_uncal_clipped - ref_var)**2))
-            var_rmse_cal = np.sqrt(np.mean((var_cal - ref_var)**2))
-            
-            improvement = (var_rmse_uncal - var_rmse_cal) / var_rmse_uncal * 100
+            rel_imp = ((rmse_uncal - rmse_cal) / rmse_uncal) * 100
             
             results.append({
-                "Dataset": name,
-                "Trees": n_trees,
-                "Neg Rate (%)": f"{neg_rate:.1f}%",
-                "Var RMSE (Uncal)": f"{var_rmse_uncal:.3g}",
-                "Var RMSE (Cal)": f"{var_rmse_cal:.3g}",
-                "Improvement": f"{improvement:+.1f}%"
+                'Dataset': name,
+                'Trees': n_trees,
+                'Neg Rate (Uncal)': f"{neg_rate:.1f}%",
+                'Var RMSE (Uncal)': f"{rmse_uncal:.3f}" if rmse_uncal < 10 else f"{rmse_uncal:.1f}",
+                'Var RMSE (Cal)': f"{rmse_cal:.3f}" if rmse_cal < 10 else f"{rmse_cal:.1f}",
+                'Relative Improvement': f"{rel_imp:.1f}%"
             })
             
-    df = pd.DataFrame(results)
     print("\nBenchmark Results:")
-    print(df.to_string(index=False))
-    
-    print("\nReStructuredText Table Format:")
-    print(".. list-table::")
-    print("   :header-rows: 1")
-    print("   :widths: 20 15 15 15 15 20")
-    print("")
-    print("   * - Dataset")
-    print("     - Trees")
-    print("     - Neg Rate (Uncal)")
-    print("     - Var RMSE (Uncal)")
-    print("     - Var RMSE (Cal)")
-    print("     - Rel Improvement")
-    
-    last_dataset = None
-    for _, row in df.iterrows():
-        dataset_name = row['Dataset'] if row['Dataset'] != last_dataset else ""
-        last_dataset = row['Dataset']
-        print(f"   * - {dataset_name}")
-        print(f"     - {row['Trees']}")
-        print(f"     - {row['Neg Rate (%)']}")
-        print(f"     - {row['Var RMSE (Uncal)']}")
-        print(f"     - {row['Var RMSE (Cal)']}")
-        print(f"     - {row['Improvement']}")
+    print("-" * 110)
+    print(f"{'Dataset':<20} | {'Trees':<6} | {'Neg Rate (Uncal)':<16} | {'Var RMSE (Uncal)':<16} | {'Var RMSE (Cal)':<16} | {'Relative Improvement'}")
+    print("-" * 110)
+    for r in results:
+        dataset_name = r['Dataset'] if r['Trees'] == 50 else ""
+        print(f"{dataset_name:<20} | {r['Trees']:<6} | {r['Neg Rate (Uncal)']:<16} | {r['Var RMSE (Uncal)']:<16} | {r['Var RMSE (Cal)']:<16} | {r['Relative Improvement']}")
+    print("-" * 110)
 
-if __name__ == "__main__":
-    start = time.time()
+    # Also output RST format for easy copy-paste
+    print("\nRST Table format:")
+    for r in results:
+        dataset_name = r['Dataset'] if r['Trees'] == 50 else ""
+        print(f"   * - {dataset_name}")
+        print(f"     - {r['Trees']}")
+        print(f"     - {r['Neg Rate (Uncal)']}")
+        print(f"     - {r['Var RMSE (Uncal)']}")
+        print(f"     - {r['Var RMSE (Cal)']}")
+        print(f"     - {r['Relative Improvement']}")
+
+if __name__ == '__main__':
     run_benchmark()
-    print(f"\nCompleted in {time.time()-start:.1f} seconds")
